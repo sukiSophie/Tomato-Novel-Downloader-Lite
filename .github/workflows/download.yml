@@ -36,6 +36,16 @@ jobs:
           import os
           import importlib.util
           from datetime import datetime
+          import builtins
+          
+          # 重写input函数以自动处理重复下载提示
+          def auto_input(prompt=""):
+              if "是否需要再次下载" in prompt:
+                  return "1"
+              return builtins.input(prompt)
+          
+          # 替换全局input函数
+          builtins.input = auto_input
           
           # 动态导入2.py模块
           spec = importlib.util.spec_from_file_location("novel_downloader", "2.py")
