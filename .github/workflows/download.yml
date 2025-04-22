@@ -78,6 +78,9 @@ jobs:
           # 执行下载
           python auto_download.py ${{ github.event.inputs.novel_id }}
 
+          # 清理临时文件
+          rm -f novels/chapter.json
+
       - name: Commit and Push
         run: |
           git config --local user.email "action@github.com"
