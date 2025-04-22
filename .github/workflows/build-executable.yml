@@ -1,12 +1,15 @@
-name: Build and Release Tomato Novel Downloader
+name: Download Novel from Tomato
 
 on:
-  push:
-    branches: [ "main" ]
-    tags: [ "v*" ]  # 打标签时触发发布
+  workflow_dispatch:
+    inputs:
+      novel_id:
+        description: '番茄小说ID'
+        required: true
+        type: string
 
 jobs:
-  build-linux:
+  download-novel:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -15,203 +18,64 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"  # 使用稳定版本
-
-      - name: Cache Dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller requests bs4 fake-useragent tqdm urllib3
-
-      - name: Build Executable
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            VERSION="${{ github.ref_name }}"
-          else
-            VERSION="sha-${{ github.sha }}"
-          fi
-
-          pyinstaller \
-            --onefile \
-            --strip \
-            --exclude-module _bootlocale \
-            --exclude-module _cffi_backend \
-            --collect-data fake_useragent \
-            --name=TomatoNovelDownloader-Linux_amd64-$VERSION \
-            --clean \
-            2.py
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-build
-          path: dist/TomatoNovelDownloader-Linux_amd64-*
-
-  build-linux-arm64:
-    runs-on: ubuntu-24.04-arm
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
           python-version: "3.12"
 
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller requests bs4 fake-useragent tqdm urllib3
+          pip install requests bs4 fake-useragent tqdm urllib3 pycryptodome
 
-      - name: Build Executable
+      - name: Create novels directory
+        run: mkdir -p novels
+
+      - name: Download Novel
         run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            VERSION="${{ github.ref_name }}"
-          else
-            VERSION="sha-${{ github.sha }}"
-          fi
+          # 修改爬虫程序以适应自动化运行
+          cat > auto_download.py << 'EOF'
+          import sys
+          import os
+          import importlib.util
+          from datetime import datetime
+          
+          # 动态导入2.py模块
+          spec = importlib.util.spec_from_file_location("novel_downloader", "2.py")
+          novel_downloader = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(novel_downloader)
+          Run = novel_downloader.Run
+          
+          if __name__ == "__main__":
+              if len(sys.argv) < 2:
+                  print("请提供小说ID")
+                  sys.exit(1)
+              
+              book_id = sys.argv[1]
+              save_path = os.path.join(os.getcwd(), "novels")
+              
+              print(f"开始下载小说ID: {book_id}")
+              print(f"保存路径: {save_path}")
+              
+              # 创建日志文件
+              with open(os.path.join(save_path, "download_log.txt"), "a", encoding="utf-8") as log:
+                  log.write(f"\n--- 下载开始: {datetime.now()} ---\n")
+                  log.write(f"小说ID: {book_id}\n")
+              
+              try:
+                  Run(book_id, save_path)
+                  with open(os.path.join(save_path, "download_log.txt"), "a", encoding="utf-8") as log:
+                      log.write(f"下载完成: {datetime.now()}\n")
+              except Exception as e:
+                  with open(os.path.join(save_path, "download_log.txt"), "a", encoding="utf-8") as log:
+                      log.write(f"下载失败: {str(e)}\n")
+                  sys.exit(1)
+          EOF
+          
+          # 执行下载
+          python auto_download.py ${{ github.event.inputs.novel_id }}
 
-          pyinstaller \
-            --onefile \
-            --strip \
-            --exclude-module _bootlocale \
-            --exclude-module _cffi_backend \
-            --collect-data fake_useragent \
-            --name=TomatoNovelDownloader-Linux_arm64-$VERSION \
-            --clean \
-            2.py
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-arm64-build
-          path: dist/TomatoNovelDownloader-Linux_arm64-*
-
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Download UPX
+      - name: Commit and Push
         run: |
-          $url = "https://github.com/upx/upx/releases/download/v5.0.0/upx-5.0.0-win64.zip"
-          Invoke-WebRequest -Uri $url -OutFile upx.zip
-          Expand-Archive -Path upx.zip -DestinationPath upx
-
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller requests bs4 fake-useragent tqdm urllib3
-
-      - name: Build Executable
-        run: |
-          $upxDir = "$pwd\upx\upx-5.0.0-win64"
-          if (Test-Path "$upxDir\upx.exe") {
-              icacls "$upxDir\upx.exe" /grant Everyone:F
-          }
-
-          if ("${{ github.ref_type }}" -eq "tag") {
-            $version = "${{ github.ref_name }}"
-          } else {
-            $version = "sha-${{ github.sha }}"
-          }
-
-          pyinstaller --onefile `
-            --upx-dir "$upxDir" `
-            --collect-data fake_useragent `
-            --name=TomatoNovelDownloader-Win64-$version `
-            --clean `
-            2.py
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-build
-          path: dist\TomatoNovelDownloader-Win64-*.exe
-
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller requests bs4 fake-useragent tqdm urllib3
-
-      - name: Build Executable
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            VERSION="${{ github.ref_name }}"
-          else
-            VERSION="sha-${{ github.sha }}"
-          fi
-
-          pyinstaller \
-            --onefile \
-            --strip \
-            --exclude-module _bootlocale \
-            --exclude-module _cffi_backend \
-            --collect-data fake_useragent \
-            --name=TomatoNovelDownloader-macOS_arm64-$VERSION \
-            --clean \
-            2.py
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-build
-          path: dist/TomatoNovelDownloader-macOS_arm64-*
-
-  publish-release:
-    needs: [build-linux, build-linux-arm64, build-windows, build-macos]
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')  # 仅打标签时发布
-
-    steps:
-      - name: Download All Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release-artifacts
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          files: |
-            release-artifacts/linux-build/*
-            release-artifacts/linux-arm64-build/*
-            release-artifacts/windows-build/*.exe
-            release-artifacts/macos-build/*
-          body: |
-            **番茄小说下载器 ${{ github.ref_name }}**  
-            a **支持平台**：  
-            - Linux (x86_64/ARM64)  
-            - Windows (UPX 压缩)  
-            - macOS (ARM64)  
-
-            b **包含文件**：  
-            - `TomatoNovelDownloader-Linux_*`  
-            - `TomatoNovelDownloader-Win64-*.exe`  
-            - `TomatoNovelDownloader-macOS_*`  
-
-            c **源码地址**: https://github.com/${{ github.repository }}
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add novels/
+          git commit -m "下载小说: ID ${{ github.event.inputs.novel_id }}" || echo "No changes to commit"
+          git push
