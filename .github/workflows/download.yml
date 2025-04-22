@@ -36,22 +36,18 @@ jobs:
           import os
           import importlib.util
           from datetime import datetime
-          import builtins
-          
-          # 重写input函数以自动处理重复下载提示
-          def auto_input(prompt=""):
-              if "是否需要再次下载" in prompt:
-                  return "1"
-              return builtins.input(prompt)
-          
-          # 替换全局input函数
-          builtins.input = auto_input
           
           # 动态导入2.py模块
           spec = importlib.util.spec_from_file_location("novel_downloader", "2.py")
           novel_downloader = importlib.util.module_from_spec(spec)
           spec.loader.exec_module(novel_downloader)
           Run = novel_downloader.Run
+          
+          def is_novel_downloaded(book_id, log_file):
+              if not os.path.exists(log_file):
+                  return False
+              with open(log_file, 'r', encoding='utf-8') as f:
+                  return book_id in f.read()
           
           if __name__ == "__main__":
               if len(sys.argv) < 2:
@@ -60,22 +56,22 @@ jobs:
               
               book_id = sys.argv[1]
               save_path = os.path.join(os.getcwd(), "novels")
+              log_file = os.path.join(save_path, "downloaded_ids.log")
+              
+              if is_novel_downloaded(book_id, log_file):
+                  print(f"小说ID {book_id} 已经下载过，跳过下载")
+                  sys.exit(0)
               
               print(f"开始下载小说ID: {book_id}")
               print(f"保存路径: {save_path}")
               
-              # 创建日志文件
-              with open(os.path.join(save_path, "download_log.txt"), "a", encoding="utf-8") as log:
-                  log.write(f"\n--- 下载开始: {datetime.now()} ---\n")
-                  log.write(f"小说ID: {book_id}\n")
-              
               try:
                   Run(book_id, save_path)
-                  with open(os.path.join(save_path, "download_log.txt"), "a", encoding="utf-8") as log:
-                      log.write(f"下载完成: {datetime.now()}\n")
+                  with open(log_file, "a", encoding="utf-8") as log:
+                      log.write(f"{book_id}\n")
+                  print(f"小说ID {book_id} 下载完成")
               except Exception as e:
-                  with open(os.path.join(save_path, "download_log.txt"), "a", encoding="utf-8") as log:
-                      log.write(f"下载失败: {str(e)}\n")
+                  print(f"下载失败: {str(e)}")
                   sys.exit(1)
           EOF
           
